@@ -1,0 +1,19 @@
+{% extends 'core/base.html' %}
+{% block title %}Комнаты{% endblock %}
+{% block content %}
+    {% if perms.user.is_staff %}
+        <table class="table table-striped">
+            {% for room in rooms %}
+                <tr>
+                  <td>{{room.uuid}}</td>
+                  <td>{{room.client}}</td>
+                  <td>{{room.status}}</td>
+                  <td>{% firstof room.agent.name 'N/A' %}</td>
+                  <td>
+                      <a href="{% url 'open_room' room.uuid %}" class="btn btn-outline-dark btn-sm" tabindex="-1" role="button" aria-disabled="true">Enter</a>
+                  </td>
+                </tr>
+            {% endfor %}
+        </table>
+    {% endif %}
+{% endblock %}

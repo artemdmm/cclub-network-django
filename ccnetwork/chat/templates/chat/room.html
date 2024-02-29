@@ -1,0 +1,214 @@
+{% extends 'core/base.html' %}
+{% block title %}Комната{% endblock %}
+{% block content %}
+    {% if perms.user.is_staff %}
+        UUID: {{ room.uuid }}<br>
+        Status: <select id="status" onchange="getStatus(this.value)">
+           <option value="waiting">waiting</option>
+           <option value="active">active</option>
+           <option value="closed">closed</option>
+         </select><br>
+    {% endif %}
+    <div class="messenger-body">
+        <div id="messenger-container">
+            <div class="messenger" id="chat-log">
+                <div>
+                    {% for message in room.messages.all %}
+                        <div class="message">
+                            <div class="username">{{ message.sent_by }}<span class="dateago"> {{ message.created_at|timesince }} ago</span></div>
+                            <div class="msg-text">{{ message.body }}</div>
+                        </div>
+                    {% endfor %}
+                </div>
+            </div>
+            <div id="chat-room" class="input-messanger">
+                <input type="text" name="body" id="chat-msg-input" class="input-msg" placeholder="Type your message...">
+                <button id="chat-msg-submit" class="btn btn-outline-dark">Send</button>
+            </div>
+        </div>
+    </div>
+{% endblock %}
+
+{% block scripts %}
+    let chatName = ''
+    let chatSocket = null
+    let chatWindowUrl = window.location.href
+    let chatRoomUuid = '{{ room.uuid }}'
+    var username = '{{ request.user }}'
+
+    {% if perms.user.is_staff %}
+    select = document.getElementById('status');
+    select.value='{{ room.status }}';
+    {% endif %}
+
+    async function getUser(){
+        let response = await fetch('http://127.0.0.1:8000/api/getuser').then(response => response.json())
+                                                                       .then((response) => {
+                                                                           username = response["username"]
+                                                                       })
+                                                                       .catch(err => console.log(err))
+        console.log(username)
+        return username
+    }
+
+    const chatBlockElement = document.querySelector('#messenger-block')
+    const chatEntryElement = document.querySelector('#messenger-entry')
+    const chatContainerElement = document.querySelector('#messenger-container')
+
+    const chatJoinElement = document.querySelector('#chat-join-enter')
+    const chatNameElement = document.querySelector('#chat-name-input')
+    const chatLogElement = document.querySelector('#chat-log')
+    const chatInputElement = document.querySelector('#chat-msg-input')
+    const chatSubmitElement = document.querySelector('#chat-msg-submit')
+
+    async function getStatus(status) {
+        const data = new FormData()
+        data.append('status', status)
+        data.append('uuid', '{{ room.uuid }}')
+        await fetch(`http://127.0.0.1:8000/room/api/statusupdate/`, {
+            method: 'POST',
+            headers: {
+                'X-CSRFToken': getCookie('csrftoken')
+            },
+            body: data
+        })
+        .then(function(res) {
+            return res.json()
+        })
+        .then(function(data) {
+            console.log('data', data)
+        })
+    }
+
+    function getCookie(name) {
+        var cookieValue = null
+
+        if (document.cookie && document.cookie != '') {
+            var cookies = document.cookie.split(';')
+
+            for (var i = 0; i < cookies.length; i++) {
+                var cookie = cookies[i].trim()
+
+                if (cookie.substring(0, name.length + 1) === (name + '=')) {
+                    cookieValue = decodeURIComponent(cookie.substring(name.length + 1))
+
+                    break
+                }
+            }
+        }
+
+        return cookieValue
+    }
+
+    function sendMessage() {
+        chatSocket.send(JSON.stringify({
+            'type': 'message',
+            'message': chatInputElement.value,
+            'name': username
+        }))
+
+        chatInputElement.value = ''
+
+        {% if not perms.user.is_staff %}
+            var once = 1;
+            if ('{{room.status}}' == 'closed' && once == 1) {
+                getStatus('waiting')
+                once = 0
+            }
+        {% endif %}
+    }
+
+    function scrollToBottom() {
+        chatLogElement.scrollTop = chatLogElement.scrollHeight
+    }
+
+    function onChatMessage(data) {
+        console.log('onChatMessage', data)
+
+        if (data.type == 'chat_message') {
+            chatLogElement.innerHTML += `
+                <div class="message">
+                    <div class="username">${data.name}<span class="dateago"> ${data.created_at} ago</span></div>
+                    <div class="msg-text">${data.message}</div>
+                </div>
+            `
+        } else if (data.type == 'users_update') {
+            chatLogElement.innerHTML += '<p class="mt-2">The admin/agent has joined the chat!'
+        } else if (data.type == 'writing_active') {
+            if (data.agent) {
+                let tmpInfo = document.querySelector('.tmp-info')
+
+                if (tmpInfo) {
+                    tmpInfo.remove()
+                }
+
+                chatLogElement.innerHTML += `<p class="text-sm">The agent/admin is writing a message</p>`
+            }
+        }
+
+        scrollToBottom()
+    }
+
+    async function joinChatRoom() {
+        console.log('joinChatRoom')
+        console.log('Room UUID:', chatRoomUuid)
+
+        const data = new FormData()
+        data.append('name', username)
+        data.append('url', chatWindowUrl)
+
+     /* await fetch(`/room/api/createroom/${chatRoomUuid}/`, {
+            method: 'POST',
+            headers: {
+                'X-CSRFToken': getCookie('csrftoken')
+            },
+            body: data
+        })
+        .then(function(res) {
+            return res.json()
+        })
+        .then(function(data) {
+            console.log('data', data)
+        }) */
+
+        chatSocket = new WebSocket(`ws://${window.location.host}/ws/${chatRoomUuid}/`)
+
+        chatSocket.onmessage = function(e) {
+            console.log('onMessage')
+
+            onChatMessage(JSON.parse(e.data))
+        }
+
+        chatSocket.onopen = function(e) {
+            console.log('onOpen - chat socket was opened')
+
+            scrollToBottom()
+        }
+
+        chatSocket.onclose = function(e) {
+            console.log('onClose - chat socket was closed')
+        }
+    }
+
+    joinChatRoom()
+
+    chatSubmitElement.onclick = function(e) {
+        e.preventDefault()
+
+        sendMessage()
+    }
+
+    chatInputElement.onkeyup = function(e) {
+        if (e.keyCode == 13) {
+            sendMessage()
+        }
+    }
+
+    chatInputElement.onfocus = function(e) {
+        chatSocket.send(JSON.stringify({
+            'type': 'update',
+            'message': 'writing_active',
+            'name': chatName
+        }))
+    }
+{% endblock %}
