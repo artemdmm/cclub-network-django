@@ -1,0 +1,24 @@
+{% extends 'core/base.html' %}
+{% block title %}Логин{% endblock %}
+{% block content %}
+    <form method="POST">
+        {% csrf_token %}
+        <div>
+            <label for="id_login">Login</label>
+            <input type="text" name="username" id="id_login">
+        </div>
+        <div>
+            <label for="id_password">Password</label>
+            <input type="password" name="password" id="id_password">
+        </div>
+        {% if form.errors or form.non_field_errors %}
+            <div>
+                {% for field in form %}
+                    {{ field.errors }}
+                {% endfor %}
+                {{ form.non_field_errors }}
+            </div>
+        {% endif %}
+        <button>Submit</button>
+    </form>
+{% endblock %}
